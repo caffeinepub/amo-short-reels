@@ -1,0 +1,209 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: "Mona Sans";
+  src: url("/assets/fonts/MonaSans[wdth,wght].woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("/assets/fonts/BricolageGrotesque[opsz,wdth,wght].woff2") format("woff2");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Outfit";
+  src: url("/assets/fonts/Outfit[wght].woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@layer base {
+  :root {
+    --radius: 0.75rem;
+
+    /* AMO dark theme - deep black with electric accents */
+    --background: 0.07 0 0;
+    --foreground: 0.97 0 0;
+    --card: 0.11 0 0;
+    --card-foreground: 0.97 0 0;
+    --popover: 0.13 0 0;
+    --popover-foreground: 0.97 0 0;
+    --primary: 0.72 0.28 320;
+    --primary-foreground: 0.97 0 0;
+    --secondary: 0.18 0 0;
+    --secondary-foreground: 0.85 0 0;
+    --muted: 0.16 0 0;
+    --muted-foreground: 0.55 0 0;
+    --accent: 0.75 0.25 25;
+    --accent-foreground: 0.97 0 0;
+    --destructive: 0.62 0.26 25;
+    --destructive-foreground: 0.97 0 0;
+    --border: 0.22 0 0;
+    --input: 0.20 0 0;
+    --ring: 0.72 0.28 320;
+    --chart-1: 0.72 0.28 320;
+    --chart-2: 0.75 0.25 25;
+    --chart-3: 0.65 0.22 270;
+    --chart-4: 0.80 0.20 60;
+    --chart-5: 0.60 0.25 200;
+    --sidebar: 0.09 0 0;
+    --sidebar-foreground: 0.97 0 0;
+    --sidebar-primary: 0.72 0.28 320;
+    --sidebar-primary-foreground: 0.97 0 0;
+    --sidebar-accent: 0.16 0 0;
+    --sidebar-accent-foreground: 0.85 0 0;
+    --sidebar-border: 0.20 0 0;
+    --sidebar-ring: 0.72 0.28 320;
+
+    /* AMO Brand Gradient */
+    --amo-purple: oklch(0.65 0.28 290);
+    --amo-pink: oklch(0.72 0.28 335);
+    --amo-orange: oklch(0.78 0.22 30);
+    --amo-gradient: linear-gradient(135deg, oklch(0.65 0.28 290), oklch(0.72 0.28 335), oklch(0.78 0.22 30));
+    --amo-gradient-text: linear-gradient(90deg, oklch(0.65 0.28 290), oklch(0.72 0.28 335), oklch(0.78 0.22 30));
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Outfit", "Mona Sans", sans-serif;
+    overflow-x: hidden;
+  }
+
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: oklch(0.30 0 0);
+    border-radius: 2px;
+  }
+}
+
+@layer utilities {
+  .amo-gradient {
+    background: var(--amo-gradient);
+  }
+
+  .amo-gradient-text {
+    background: var(--amo-gradient-text);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .amo-border-gradient {
+    border: 1.5px solid transparent;
+    background: linear-gradient(oklch(0.11 0 0), oklch(0.11 0 0)) padding-box,
+                var(--amo-gradient) border-box;
+  }
+
+  .glass-card {
+    background: oklch(0.12 0 0 / 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  .snap-y-mandatory {
+    scroll-snap-type: y mandatory;
+  }
+
+  .snap-start {
+    scroll-snap-align: start;
+  }
+
+  .text-shadow-sm {
+    text-shadow: 0 1px 3px oklch(0 0 0 / 0.8);
+  }
+
+  .text-shadow-md {
+    text-shadow: 0 2px 8px oklch(0 0 0 / 0.9);
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  @keyframes heart-burst {
+    0% { transform: scale(0) rotate(-15deg); opacity: 1; }
+    50% { transform: scale(1.4) rotate(5deg); opacity: 1; }
+    100% { transform: scale(0) rotate(-5deg); opacity: 0; }
+  }
+
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 oklch(0.62 0.26 25 / 0.8); }
+    70% { box-shadow: 0 0 0 15px oklch(0.62 0.26 25 / 0); }
+    100% { box-shadow: 0 0 0 0 oklch(0.62 0.26 25 / 0); }
+  }
+
+  @keyframes marquee {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+
+  @keyframes vinyl-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes record-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  @keyframes float-up {
+    0% { transform: translateY(0) scale(1); opacity: 1; }
+    100% { transform: translateY(-120px) scale(0.5); opacity: 0; }
+  }
+
+  .animate-heart-burst {
+    animation: heart-burst 0.6s ease-out forwards;
+  }
+
+  .animate-pulse-ring {
+    animation: pulse-ring 1.5s ease-out infinite;
+  }
+
+  .animate-marquee {
+    animation: marquee 12s linear infinite;
+  }
+
+  .animate-vinyl {
+    animation: vinyl-spin 3s linear infinite;
+  }
+
+  .animate-record {
+    animation: record-pulse 1s ease-in-out infinite;
+  }
+
+  .animate-float-up {
+    animation: float-up 1.2s ease-out forwards;
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
