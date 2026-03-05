@@ -73,17 +73,14 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
   // Auto-retry when user returns to the tab after possibly granting camera permission in browser settings
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (
-        document.visibilityState === "visible" &&
-        !camera.isActive &&
-        !camera.isLoading
-      ) {
-        camera.startCamera();
+      if (document.visibilityState === "visible" && !camera.isActive) {
+        // Small delay to allow browser to register the new permission state
+        setTimeout(() => camera.startCamera(), 300);
       }
     };
     const handleFocus = () => {
-      if (!camera.isActive && !camera.isLoading) {
-        camera.startCamera();
+      if (!camera.isActive) {
+        setTimeout(() => camera.startCamera(), 300);
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -92,7 +89,7 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", handleFocus);
     };
-  }, [camera.isActive, camera.isLoading, camera.startCamera]);
+  }, [camera.isActive, camera.startCamera]);
 
   // Auto-retry logic: only retry automatically on non-permission errors (permission errors
   // require user interaction to re-grant — auto-retrying a denied permission just spams the error)
@@ -186,8 +183,22 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
     [],
   );
 
-  const handleRetry = useCallback(() => {
+  const handleRetry = useCallback(async () => {
     autoRetryCountRef.current = 0;
+    // Try permission check via Permissions API if available
+    if (navigator.permissions) {
+      try {
+        const permStatus = await navigator.permissions.query({
+          name: "camera" as PermissionName,
+        });
+        if (permStatus.state === "denied") {
+          // Can't re-prompt when permanently denied — show message
+          // retry will still run and let user know
+        }
+      } catch {
+        // Permissions API not available, proceed normally
+      }
+    }
     camera.retry();
   }, [camera]);
 
@@ -475,8 +486,17 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
                   className="w-full h-12 rounded-2xl text-sm font-bold text-white flex items-center justify-center gap-2"
                   style={{ background: "var(--amo-gradient)" }}
                 >
-                  <RefreshCw className="w-4 h-4" />
-                  Retry — Camera Kholo
+                  {camera.isLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Camera kholne ki koshish ho rahi hai...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4" />
+                      Retry — Camera Kholo
+                    </>
+                  )}
                 </motion.button>
               </motion.div>
             ) : (
