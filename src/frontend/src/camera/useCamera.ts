@@ -141,7 +141,7 @@ export const useCamera = (config: CameraConfig = {}) => {
   }, []);
 
   const startCamera = useCallback(async (): Promise<boolean> => {
-    if (isSupported === false || isLoading) {
+    if (isSupported === false) {
       return false;
     }
 
@@ -177,14 +177,7 @@ export const useCamera = (config: CameraConfig = {}) => {
         setIsLoading(false);
       }
     }
-  }, [
-    isSupported,
-    isLoading,
-    currentFacingMode,
-    cleanup,
-    createMediaStream,
-    setupVideo,
-  ]);
+  }, [isSupported, currentFacingMode, cleanup, createMediaStream, setupVideo]);
 
   const stopCamera = useCallback(async (): Promise<void> => {
     if (isLoading) return;
@@ -261,13 +254,48 @@ export const useCamera = (config: CameraConfig = {}) => {
   );
 
   const retry = useCallback(async (): Promise<boolean> => {
-    if (isLoading) return false;
-
+    // Stop existing stream directly without going through stopCamera (which sets isLoading)
+    // This avoids the race condition where startCamera sees isLoading=true and returns early
+    if (streamRef.current) {
+      for (const track of streamRef.current.getTracks()) {
+        track.stop();
+      }
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsActive(false);
     setError(null);
-    await stopCamera();
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    return startCamera();
-  }, [isLoading, stopCamera, startCamera]);
+
+    // Small delay then start fresh
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    // Directly restart the camera (startCamera no longer has an isLoading guard)
+    setIsLoading(true);
+    try {
+      const stream = await createMediaStream(currentFacingMode);
+      if (!stream) return false;
+      streamRef.current = stream;
+      const success = await setupVideo(stream);
+      if (success && isMountedRef.current) {
+        setIsActive(true);
+        return true;
+      }
+      cleanup();
+      return false;
+    } catch (err: any) {
+      if (isMountedRef.current) {
+        setError(err);
+      }
+      cleanup();
+      return false;
+    } finally {
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
+    }
+  }, [currentFacingMode, cleanup, createMediaStream, setupVideo]);
 
   const capturePhoto = useCallback((): Promise<File | null> => {
     return new Promise((resolve) => {
