@@ -1,6 +1,5 @@
 import { useCamera } from "@/camera/useCamera";
 import {
-  Check,
   ChevronDown,
   FlipHorizontal,
   Gauge,
@@ -11,13 +10,11 @@ import {
   Music,
   Play,
   RefreshCw,
-  Settings,
   Sparkles,
   Timer,
   Upload,
   X,
   Zap,
-  ZapIcon,
   ZapOff,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -33,13 +30,14 @@ interface CameraScreenProps {
 type Flash = "off" | "on" | "auto";
 type Speed = "0.3x" | "0.5x" | "1x" | "2x" | "3x";
 type Duration = 15 | 30 | 60;
-type CameraMode = "camera" | "preview";
+type AppMode = "camera" | "preview";
 
 export default function CameraScreen({ onClose }: CameraScreenProps) {
+  const cam = useCamera("environment");
+
   const [flash, setFlash] = useState<Flash>("off");
   const [beauty, setBeauty] = useState(false);
   const [timer, setTimer] = useState<0 | 3 | 10>(0);
-  const [showSettings, setShowSettings] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
   const [speed, setSpeed] = useState<Speed>("1x");
   const [showSpeed, setShowSpeed] = useState(false);
@@ -48,94 +46,45 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [recordProgress, setRecordProgress] = useState(0);
   const [recordTime, setRecordTime] = useState(0);
-  const [mode, setMode] = useState<CameraMode>("camera");
+  const [appMode, setAppMode] = useState<AppMode>("camera");
   const [caption, setCaption] = useState("");
   const [hashtags, setHashtags] = useState("");
-  const [cameraFacing, setCameraFacing] = useState<"environment" | "user">(
-    "environment",
-  );
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const autoRetryCountRef = useRef(0);
-  const autoRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const camera = useCamera({ facingMode: cameraFacing });
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: start camera once on mount
+  // Start camera on mount
+  // biome-ignore lint/correctness/useExhaustiveDependencies: start once
   useEffect(() => {
-    camera.startCamera();
-    return () => {
-      camera.stopCamera();
-    };
+    cam.start();
+    return () => cam.stop();
   }, []);
 
-  // Auto-retry when user returns to the tab after possibly granting camera permission in browser settings
+  // Auto-retry when tab becomes visible again (after permission grant in settings)
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && !camera.isActive) {
-        // Small delay to allow browser to register the new permission state
-        setTimeout(() => camera.startCamera(), 300);
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && cam.state !== "active") {
+        setTimeout(() => cam.retry(), 400);
       }
     };
-    const handleFocus = () => {
-      if (!camera.isActive) {
-        setTimeout(() => camera.startCamera(), 300);
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("focus", handleFocus);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("focus", handleFocus);
-    };
-  }, [camera.isActive, camera.startCamera]);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [cam.state, cam.retry]);
 
-  // Auto-retry logic: only retry automatically on non-permission errors (permission errors
-  // require user interaction to re-grant — auto-retrying a denied permission just spams the error)
-  useEffect(() => {
-    if (
-      camera.error &&
-      camera.error.type !== "permission" &&
-      autoRetryCountRef.current < 3
-    ) {
-      autoRetryTimerRef.current = setTimeout(() => {
-        autoRetryCountRef.current += 1;
-        camera.retry();
-      }, 3000);
-    }
-    return () => {
-      if (autoRetryTimerRef.current) {
-        clearTimeout(autoRetryTimerRef.current);
-        autoRetryTimerRef.current = null;
-      }
-    };
-  }, [camera.error, camera.retry]);
-
-  // Reset auto-retry count when camera becomes active
-  useEffect(() => {
-    if (camera.isActive) {
-      autoRetryCountRef.current = 0;
-    }
-  }, [camera.isActive]);
-
+  // Recording timer
   useEffect(() => {
     if (isRecording) {
       recordTimerRef.current = setInterval(() => {
         setRecordTime((t) => {
           const next = t + 0.1;
           setRecordProgress((next / duration) * 100);
-          if (next >= duration) {
-            stopRecording();
-          }
+          if (next >= duration) stopRecording();
           return next;
         });
       }, 100);
     } else {
-      if (recordTimerRef.current) {
-        clearInterval(recordTimerRef.current);
-        recordTimerRef.current = null;
-      }
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
     }
     return () => {
       if (recordTimerRef.current) clearInterval(recordTimerRef.current);
@@ -150,63 +99,32 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
 
   const stopRecording = useCallback(() => {
     setIsRecording(false);
-    setMode("preview");
+    setAppMode("preview");
   }, []);
 
-  const handleFlipCamera = useCallback(async () => {
-    const newFacing = cameraFacing === "environment" ? "user" : "environment";
-    setCameraFacing(newFacing);
-    await camera.switchCamera(newFacing);
-  }, [cameraFacing, camera]);
-
-  const handleFlashCycle = useCallback(() => {
-    setFlash((f) => (f === "off" ? "on" : f === "on" ? "auto" : "off"));
-  }, []);
-
-  const handleTimerCycle = useCallback(() => {
-    setTimer((t) => (t === 0 ? 3 : t === 3 ? 10 : 0));
-  }, []);
-
-  const handleGalleryOpen = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
+  const handleGalleryOpen = useCallback(
+    () => fileInputRef.current?.click(),
+    [],
+  );
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (file) {
-        const url = URL.createObjectURL(file);
-        setPreviewUrl(url);
-        setMode("preview");
+        setPreviewUrl(URL.createObjectURL(file));
+        setAppMode("preview");
       }
     },
     [],
   );
 
-  const handleRetry = useCallback(async () => {
-    autoRetryCountRef.current = 0;
-    // Try permission check via Permissions API if available
-    if (navigator.permissions) {
-      try {
-        const permStatus = await navigator.permissions.query({
-          name: "camera" as PermissionName,
-        });
-        if (permStatus.state === "denied") {
-          // Can't re-prompt when permanently denied — show message
-          // retry will still run and let user know
-        }
-      } catch {
-        // Permissions API not available, proceed normally
-      }
-    }
-    camera.retry();
-  }, [camera]);
+  const FlashIcon = flash === "on" ? Zap : flash === "auto" ? Zap : ZapOff;
+  const isActive = cam.state === "active";
+  const isRequesting = cam.state === "requesting";
+  const isDenied = cam.state === "denied";
+  const isUnavailable = cam.state === "unavailable" || cam.state === "error";
 
-  const FlashIcon = flash === "on" ? Zap : flash === "auto" ? ZapIcon : ZapOff;
-  const isPermissionError = camera.error?.type === "permission";
-  const cameraUnavailable = !camera.isActive && !camera.isLoading;
-
-  if (mode === "preview") {
+  if (appMode === "preview") {
     return (
       <UploadScreen
         previewUrl={previewUrl}
@@ -215,7 +133,7 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
         hashtags={hashtags}
         setHashtags={setHashtags}
         onBack={() => {
-          setMode("camera");
+          setAppMode("camera");
           setPreviewUrl(null);
         }}
         onClose={onClose}
@@ -228,79 +146,48 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
       className="fixed inset-0 z-40 flex flex-col"
       style={{ background: "oklch(0.00 0 0)" }}
     >
-      {/* Camera viewfinder */}
+      {/* ── Viewfinder ── */}
       <div className="absolute inset-0">
-        {camera.isActive ? (
-          <video
-            ref={camera.videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full h-full object-cover"
-            style={{
-              transform: cameraFacing === "user" ? "scaleX(-1)" : "none",
-            }}
-          />
-        ) : (
+        {/* Video element — always in DOM so ref is always ready */}
+        <video
+          ref={cam.videoRef}
+          autoPlay
+          playsInline
+          muted
+          className="w-full h-full object-cover"
+          style={{
+            display: isActive ? "block" : "none",
+            transform: cam.facing === "user" ? "scaleX(-1)" : "none",
+          }}
+        />
+
+        {/* Overlay states when camera is not active */}
+        {!isActive && (
           <div
-            className="w-full h-full flex flex-col items-center justify-center gap-4"
-            style={{ background: "oklch(0.08 0 0)" }}
+            className="w-full h-full flex flex-col items-center justify-center gap-4 px-5"
+            style={{ background: "oklch(0.07 0 0)" }}
           >
-            {camera.isLoading ? (
+            {isRequesting && (
               <>
                 <div className="w-12 h-12 border-2 border-white/20 border-t-white rounded-full animate-spin" />
                 <p className="text-white/50 text-sm">
                   Camera shuru ho raha hai...
                 </p>
               </>
-            ) : camera.error?.type === "not-found" ? (
-              /* No camera hardware found */
+            )}
+
+            {isDenied && (
               <motion.div
-                initial={{ opacity: 0, scale: 0.92 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.3 }}
-                className="mx-5 rounded-3xl p-6 flex flex-col items-center gap-5 max-w-xs w-full"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="w-full max-w-xs rounded-3xl p-6 flex flex-col items-center gap-4"
                 style={{
                   background: "oklch(0.12 0 0)",
                   border: "1px solid oklch(0.22 0 0)",
                 }}
                 data-ocid="camera.error_state"
               >
-                <div
-                  className="w-16 h-16 rounded-full flex items-center justify-center"
-                  style={{
-                    background: "oklch(0.62 0.26 25 / 0.15)",
-                    border: "1px solid oklch(0.62 0.26 25 / 0.4)",
-                  }}
-                >
-                  <svg
-                    aria-hidden="true"
-                    width="30"
-                    height="30"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="oklch(0.72 0.22 25)"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                    <line x1="1" y1="1" x2="23" y2="23" />
-                  </svg>
-                </div>
-                <div className="text-center">
-                  <h3 className="font-bold text-white text-base mb-1">
-                    Camera Nahi Mila
-                  </h3>
-                  <p
-                    className="text-xs leading-relaxed"
-                    style={{ color: "oklch(0.55 0 0)" }}
-                  >
-                    Aapke device mein camera nahi mila. Gallery se video upload
-                    karo.
-                  </p>
-                </div>
-                {/* Gallery upload — primary action */}
+                {/* Gallery — primary action */}
                 <motion.button
                   type="button"
                   data-ocid="camera.gallery_upload_button"
@@ -308,62 +195,18 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
                   whileTap={{ scale: 0.96 }}
                   animate={{
                     boxShadow: [
-                      "0 0 0px 0px oklch(0.62 0.22 145 / 0)",
-                      "0 0 20px 6px oklch(0.62 0.22 145 / 0.4)",
-                      "0 0 0px 0px oklch(0.62 0.22 145 / 0)",
+                      "0 0 0px 0px oklch(0.55 0.22 145 / 0)",
+                      "0 0 22px 8px oklch(0.55 0.22 145 / 0.45)",
+                      "0 0 0px 0px oklch(0.55 0.22 145 / 0)",
                     ],
                   }}
                   transition={{
                     boxShadow: {
-                      duration: 2.2,
+                      duration: 2.4,
                       repeat: Number.POSITIVE_INFINITY,
-                      ease: "easeInOut",
                     },
                   }}
-                  className="w-full h-14 rounded-2xl text-base font-bold text-white flex items-center justify-center gap-3"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, oklch(0.52 0.22 145), oklch(0.45 0.20 165))",
-                  }}
-                >
-                  <Image className="w-5 h-5" />
-                  Gallery se Video Upload Karo
-                </motion.button>
-              </motion.div>
-            ) : isPermissionError ? (
-              /* Permission denied — prominent instructions */
-              <motion.div
-                initial={{ opacity: 0, scale: 0.92 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.3 }}
-                className="mx-5 rounded-3xl p-6 flex flex-col items-center gap-5 max-w-xs w-full"
-                style={{
-                  background: "oklch(0.12 0 0)",
-                  border: "1px solid oklch(0.22 0 0)",
-                }}
-                data-ocid="camera.error_state"
-              >
-                {/* 🟢 Gallery upload button — FIRST and most prominent */}
-                <motion.button
-                  type="button"
-                  data-ocid="camera.gallery_upload_button"
-                  onClick={handleGalleryOpen}
-                  whileTap={{ scale: 0.96 }}
-                  animate={{
-                    boxShadow: [
-                      "0 0 0px 0px oklch(0.62 0.22 145 / 0)",
-                      "0 0 22px 8px oklch(0.62 0.22 145 / 0.45)",
-                      "0 0 0px 0px oklch(0.62 0.22 145 / 0)",
-                    ],
-                  }}
-                  transition={{
-                    boxShadow: {
-                      duration: 2.2,
-                      repeat: Number.POSITIVE_INFINITY,
-                      ease: "easeInOut",
-                    },
-                  }}
-                  className="w-full h-14 rounded-2xl text-base font-bold text-white flex items-center justify-center gap-3"
+                  className="w-full h-14 rounded-2xl font-bold text-white flex items-center justify-center gap-3"
                   style={{
                     background:
                       "linear-gradient(135deg, oklch(0.52 0.22 145), oklch(0.45 0.20 165))",
@@ -374,7 +217,7 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
                 </motion.button>
 
                 <div
-                  className="w-full flex items-center gap-3"
+                  className="flex items-center gap-3 w-full"
                   style={{ color: "oklch(0.30 0 0)" }}
                 >
                   <div
@@ -390,7 +233,67 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
                   />
                 </div>
 
-                {/* Camera blocked icon */}
+                <div className="text-center">
+                  <h3 className="font-bold text-white text-sm mb-1">
+                    Camera Permission Chahiye
+                  </h3>
+                  <p
+                    className="text-xs leading-relaxed"
+                    style={{ color: "oklch(0.50 0 0)" }}
+                  >
+                    Browser ne camera block kar rakha hai. Neeche diye steps
+                    follow karo:
+                  </p>
+                </div>
+
+                <div
+                  className="w-full rounded-2xl p-4 space-y-3"
+                  style={{ background: "oklch(0.09 0 0)" }}
+                >
+                  {[
+                    "Browser address bar mein Lock icon tap karo",
+                    "Permissions ya Site Settings mein jao",
+                    'Camera ko "Allow" par set karo',
+                    "Wapas aa ke Retry button dabao",
+                  ].map((text, i) => (
+                    <div key={text} className="flex items-start gap-3">
+                      <span
+                        className="w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-bold text-white"
+                        style={{ background: "var(--amo-gradient)" }}
+                      >
+                        {i + 1}
+                      </span>
+                      <p className="text-xs text-white/70 leading-relaxed">
+                        {text}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  data-ocid="camera.retry_button"
+                  onClick={() => cam.retry()}
+                  className="w-full h-12 rounded-2xl font-bold text-white flex items-center justify-center gap-2"
+                  style={{ background: "var(--amo-gradient)" }}
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Retry — Camera Dobara Kholne Ki Koshish
+                </button>
+              </motion.div>
+            )}
+
+            {isUnavailable && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="w-full max-w-xs rounded-3xl p-6 flex flex-col items-center gap-4"
+                style={{
+                  background: "oklch(0.12 0 0)",
+                  border: "1px solid oklch(0.22 0 0)",
+                }}
+                data-ocid="camera.error_state"
+              >
                 <div
                   className="w-14 h-14 rounded-full flex items-center justify-center"
                   style={{
@@ -398,121 +301,20 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
                     border: "1px solid oklch(0.62 0.26 25 / 0.4)",
                   }}
                 >
-                  <svg
-                    aria-hidden="true"
-                    width="26"
-                    height="26"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="oklch(0.72 0.22 25)"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                    <line x1="1" y1="1" x2="23" y2="23" />
-                  </svg>
+                  <X
+                    className="w-6 h-6"
+                    style={{ color: "oklch(0.72 0.22 25)" }}
+                  />
                 </div>
-
                 <div className="text-center">
                   <h3 className="font-bold text-white text-sm mb-1">
-                    Camera Permission Chahiye
+                    Camera Nahi Mila
                   </h3>
-                  <p
-                    className="text-xs leading-relaxed"
-                    style={{ color: "oklch(0.55 0 0)" }}
-                  >
-                    AMO ko camera use karne ki permission nahi mili
+                  <p className="text-xs" style={{ color: "oklch(0.50 0 0)" }}>
+                    Device mein camera detect nahi hua. Gallery se upload
+                    karein.
                   </p>
                 </div>
-
-                {/* Step-by-step instructions */}
-                <div
-                  className="w-full rounded-2xl p-4 space-y-3"
-                  style={{ background: "oklch(0.09 0 0)" }}
-                >
-                  <p
-                    className="text-xs font-semibold mb-3"
-                    style={{ color: "oklch(0.55 0 0)" }}
-                  >
-                    CAMERA ALLOW KARNE KE LIYE:
-                  </p>
-                  {[
-                    {
-                      step: "1",
-                      text: "Browser address bar mein lock/camera icon tap karo",
-                    },
-                    {
-                      step: "2",
-                      text: '"Site Settings" ya "Permissions" mein jao',
-                    },
-                    { step: "3", text: 'Camera ko "Allow" karo' },
-                    { step: "4", text: "Neeche Retry button dabao" },
-                  ].map((item) => (
-                    <div key={item.step} className="flex items-start gap-3">
-                      <span
-                        className="w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-bold text-white mt-0.5"
-                        style={{ background: "var(--amo-gradient)" }}
-                      >
-                        {item.step}
-                      </span>
-                      <p className="text-xs text-white/70 leading-relaxed">
-                        {item.text}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Retry button */}
-                <motion.button
-                  type="button"
-                  data-ocid="camera.retry_button"
-                  onClick={handleRetry}
-                  whileTap={{ scale: 0.95 }}
-                  animate={{
-                    boxShadow: [
-                      "0 0 0px 0px oklch(0.72 0.28 335 / 0)",
-                      "0 0 18px 6px oklch(0.72 0.28 335 / 0.35)",
-                      "0 0 0px 0px oklch(0.72 0.28 335 / 0)",
-                    ],
-                  }}
-                  transition={{
-                    boxShadow: {
-                      duration: 2,
-                      repeat: Number.POSITIVE_INFINITY,
-                      ease: "easeInOut",
-                    },
-                  }}
-                  className="w-full h-12 rounded-2xl text-sm font-bold text-white flex items-center justify-center gap-2"
-                  style={{ background: "var(--amo-gradient)" }}
-                >
-                  {camera.isLoading ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Camera kholne ki koshish ho rahi hai...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="w-4 h-4" />
-                      Retry — Camera Kholo
-                    </>
-                  )}
-                </motion.button>
-              </motion.div>
-            ) : (
-              /* Generic error / no camera */
-              <motion.div
-                initial={{ opacity: 0, scale: 0.92 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.3 }}
-                className="mx-5 rounded-3xl p-6 flex flex-col items-center gap-5 max-w-xs w-full"
-                style={{
-                  background: "oklch(0.12 0 0)",
-                  border: "1px solid oklch(0.22 0 0)",
-                }}
-                data-ocid="camera.error_state"
-              >
-                {/* Gallery first */}
                 <motion.button
                   type="button"
                   data-ocid="camera.gallery_upload_button"
@@ -520,19 +322,18 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
                   whileTap={{ scale: 0.96 }}
                   animate={{
                     boxShadow: [
-                      "0 0 0px 0px oklch(0.62 0.22 145 / 0)",
-                      "0 0 20px 6px oklch(0.62 0.22 145 / 0.4)",
-                      "0 0 0px 0px oklch(0.62 0.22 145 / 0)",
+                      "0 0 0px 0px oklch(0.55 0.22 145 / 0)",
+                      "0 0 20px 6px oklch(0.55 0.22 145 / 0.4)",
+                      "0 0 0px 0px oklch(0.55 0.22 145 / 0)",
                     ],
                   }}
                   transition={{
                     boxShadow: {
-                      duration: 2.2,
+                      duration: 2.4,
                       repeat: Number.POSITIVE_INFINITY,
-                      ease: "easeInOut",
                     },
                   }}
-                  className="w-full h-14 rounded-2xl text-base font-bold text-white flex items-center justify-center gap-3"
+                  className="w-full h-14 rounded-2xl font-bold text-white flex items-center justify-center gap-3"
                   style={{
                     background:
                       "linear-gradient(135deg, oklch(0.52 0.22 145), oklch(0.45 0.20 165))",
@@ -541,27 +342,13 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
                   <Image className="w-5 h-5" />
                   Gallery se Video Upload Karo
                 </motion.button>
-
-                <p className="text-white/40 text-sm text-center">
-                  {camera.error?.message || "Camera unavailable"}
-                </p>
-                <button
-                  type="button"
-                  data-ocid="camera.retry_button"
-                  onClick={handleRetry}
-                  className="px-5 py-2.5 rounded-full text-sm text-white font-semibold"
-                  style={{ background: "var(--amo-gradient)" }}
-                >
-                  <RefreshCw className="w-4 h-4 inline mr-1.5 -mt-0.5" />
-                  Retry
-                </button>
               </motion.div>
             )}
           </div>
         )}
 
         {/* Grid overlay */}
-        {showGrid && (
+        {showGrid && isActive && (
           <div
             className="absolute inset-0 pointer-events-none"
             style={{ opacity: 0.3 }}
@@ -608,7 +395,7 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
           </div>
         )}
 
-        {/* Recording progress */}
+        {/* Recording progress bar */}
         {isRecording && (
           <div className="absolute inset-0 pointer-events-none">
             <div className="absolute top-0 left-0 right-0 h-1 bg-white/20">
@@ -622,24 +409,24 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
               />
             </div>
             <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 px-3 py-1.5 rounded-full">
-              <div className="w-2 h-2 bg-red-500 rounded-full animate-record" />
+              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
               <span className="text-white text-sm font-bold tabular-nums">
                 {Math.floor(recordTime).toString().padStart(2, "0")}:
-                {Math.round((recordTime % 1) * 10).toString()}s
+                {Math.round((recordTime % 1) * 10)}s
               </span>
             </div>
           </div>
         )}
       </div>
 
-      {/* Top bar */}
+      {/* ── Top bar ── */}
       <div className="relative z-10 flex items-center justify-between px-4 pt-12 pb-3">
         <button
           type="button"
           data-ocid="camera.close_button"
           onClick={onClose}
           className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ background: "oklch(0.10 0 0 / 0.7)" }}
+          style={{ background: "oklch(0.10 0 0 / 0.75)" }}
         >
           <X className="w-5 h-5 text-white" />
         </button>
@@ -649,16 +436,20 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
           <button
             type="button"
             data-ocid="camera.flash_toggle"
-            onClick={handleFlashCycle}
-            className="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90"
+            onClick={() =>
+              setFlash((f) =>
+                f === "off" ? "on" : f === "on" ? "auto" : "off",
+              )
+            }
+            className="w-10 h-10 rounded-full flex items-center justify-center active:scale-90 transition-transform"
             style={{
               background:
                 flash !== "off"
-                  ? "oklch(0.78 0.22 60 / 0.3)"
-                  : "oklch(0.10 0 0 / 0.7)",
+                  ? "oklch(0.78 0.22 60 / 0.25)"
+                  : "oklch(0.10 0 0 / 0.75)",
               border:
                 flash !== "off"
-                  ? "1px solid oklch(0.78 0.22 60 / 0.6)"
+                  ? "1px solid oklch(0.78 0.22 60 / 0.5)"
                   : "1px solid transparent",
             }}
           >
@@ -668,6 +459,14 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
                 color: flash !== "off" ? "oklch(0.88 0.22 60)" : "white",
               }}
             />
+            {flash === "auto" && (
+              <span
+                className="absolute text-[7px] font-bold"
+                style={{ color: "oklch(0.88 0.22 60)" }}
+              >
+                A
+              </span>
+            )}
           </button>
 
           {/* Beauty */}
@@ -675,13 +474,13 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
             type="button"
             data-ocid="camera.beauty_toggle"
             onClick={() => setBeauty((b) => !b)}
-            className="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90"
+            className="w-10 h-10 rounded-full flex items-center justify-center active:scale-90 transition-transform"
             style={{
               background: beauty
-                ? "oklch(0.72 0.28 335 / 0.3)"
-                : "oklch(0.10 0 0 / 0.7)",
+                ? "oklch(0.72 0.28 335 / 0.25)"
+                : "oklch(0.10 0 0 / 0.75)",
               border: beauty
-                ? "1px solid oklch(0.72 0.28 335 / 0.6)"
+                ? "1px solid oklch(0.72 0.28 335 / 0.5)"
                 : "1px solid transparent",
             }}
           >
@@ -695,16 +494,16 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
           <button
             type="button"
             data-ocid="camera.timer_toggle"
-            onClick={handleTimerCycle}
-            className="w-10 h-10 rounded-full flex items-center justify-center relative transition-all duration-200 active:scale-90"
+            onClick={() => setTimer((t) => (t === 0 ? 3 : t === 3 ? 10 : 0))}
+            className="w-10 h-10 rounded-full flex items-center justify-center relative active:scale-90 transition-transform"
             style={{
               background:
                 timer !== 0
-                  ? "oklch(0.65 0.28 290 / 0.3)"
-                  : "oklch(0.10 0 0 / 0.7)",
+                  ? "oklch(0.65 0.28 290 / 0.25)"
+                  : "oklch(0.10 0 0 / 0.75)",
               border:
                 timer !== 0
-                  ? "1px solid oklch(0.65 0.28 290 / 0.6)"
+                  ? "1px solid oklch(0.65 0.28 290 / 0.5)"
                   : "1px solid transparent",
             }}
           >
@@ -713,99 +512,66 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
               style={{ color: timer !== 0 ? "oklch(0.75 0.28 290)" : "white" }}
             />
             {timer !== 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full text-[9px] font-bold text-white flex items-center justify-center amo-gradient">
+              <span
+                className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full text-[9px] font-bold text-white flex items-center justify-center"
+                style={{ background: "var(--amo-gradient)" }}
+              >
                 {timer}
               </span>
             )}
           </button>
 
-          {/* Settings */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowSettings((s) => !s)}
-              className="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90"
-              style={{
-                background: showSettings
-                  ? "oklch(0.22 0 0)"
-                  : "oklch(0.10 0 0 / 0.7)",
-              }}
-            >
-              <Settings className="w-5 h-5 text-white" />
-            </button>
-
-            <AnimatePresence>
-              {showSettings && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9, y: -5 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.9, y: -5 }}
-                  className="absolute top-12 right-0 rounded-2xl overflow-hidden min-w-[160px] z-50 shadow-glow"
-                  style={{ background: "oklch(0.15 0 0)" }}
-                >
-                  <button
-                    type="button"
-                    data-ocid="camera.grid_toggle"
-                    onClick={() => {
-                      setShowGrid((g) => !g);
-                      setShowSettings(false);
-                    }}
-                    className="w-full flex items-center justify-between px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Grid3x3 className="w-4 h-4" /> Grid
-                    </span>
-                    {showGrid && (
-                      <Check className="w-4 h-4 amo-gradient-text" />
-                    )}
-                  </button>
-                  <div
-                    style={{ background: "oklch(0.22 0 0)", height: "1px" }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowSettings(false);
-                    }}
-                    className="w-full flex items-center gap-2 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors"
-                  >
-                    <FlipHorizontal className="w-4 h-4" /> Mirror Preview
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+          {/* Grid */}
+          <button
+            type="button"
+            data-ocid="camera.grid_toggle"
+            onClick={() => setShowGrid((g) => !g)}
+            className="w-10 h-10 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+            style={{
+              background: showGrid
+                ? "oklch(0.50 0.20 200 / 0.25)"
+                : "oklch(0.10 0 0 / 0.75)",
+              border: showGrid
+                ? "1px solid oklch(0.60 0.20 200 / 0.5)"
+                : "1px solid transparent",
+            }}
+          >
+            <Grid3x3
+              className="w-5 h-5"
+              style={{ color: showGrid ? "oklch(0.70 0.20 200)" : "white" }}
+            />
+          </button>
         </div>
       </div>
 
-      {/* Right side controls strip */}
+      {/* ── Right side strip ── */}
       <div className="absolute right-3 top-1/4 z-10 flex flex-col items-center gap-4">
-        {/* Flip camera */}
+        {/* Flip */}
         <button
           type="button"
           data-ocid="camera.flip_button"
-          onClick={handleFlipCamera}
-          className="w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 hover:bg-white/10"
-          style={{ background: "oklch(0.10 0 0 / 0.7)" }}
+          onClick={() => cam.flip()}
+          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+          style={{ background: "oklch(0.10 0 0 / 0.75)" }}
         >
           <FlipHorizontal className="w-5 h-5 text-white" />
         </button>
 
-        {/* Speed selector */}
+        {/* Speed */}
         <div className="relative">
           <button
             type="button"
             data-ocid="camera.speed_select"
             onClick={() => setShowSpeed((s) => !s)}
-            className="w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90"
+            className="w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
             style={{
               background:
                 speed !== "1x"
-                  ? "oklch(0.65 0.28 290 / 0.4)"
-                  : "oklch(0.10 0 0 / 0.7)",
+                  ? "oklch(0.65 0.28 290 / 0.35)"
+                  : "oklch(0.10 0 0 / 0.75)",
               border:
                 speed !== "1x"
-                  ? "1px solid oklch(0.65 0.28 290 / 0.6)"
+                  ? "1px solid oklch(0.65 0.28 290 / 0.5)"
                   : "1px solid transparent",
             }}
           >
@@ -818,14 +584,13 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
               {speed}
             </span>
           </button>
-
           <AnimatePresence>
             {showSpeed && (
               <motion.div
                 initial={{ opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 10 }}
-                className="absolute right-14 top-0 flex flex-col rounded-2xl overflow-hidden shadow-glow"
+                className="absolute right-14 top-0 flex flex-col rounded-2xl overflow-hidden shadow-xl"
                 style={{ background: "oklch(0.15 0 0)" }}
               >
                 {(["0.3x", "0.5x", "1x", "2x", "3x"] as Speed[]).map((s) => (
@@ -836,7 +601,7 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
                       setSpeed(s);
                       setShowSpeed(false);
                     }}
-                    className="px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-white/5"
+                    className="px-5 py-2.5 text-sm font-semibold hover:bg-white/5 transition-colors"
                     style={{
                       color: speed === s ? "oklch(0.72 0.28 335)" : "white",
                     }}
@@ -852,8 +617,9 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
         {/* Filters */}
         <button
           type="button"
-          className="w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 hover:bg-white/10"
-          style={{ background: "oklch(0.10 0 0 / 0.7)" }}
+          data-ocid="camera.filter_button"
+          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+          style={{ background: "oklch(0.10 0 0 / 0.75)" }}
         >
           <Gauge className="w-5 h-5 text-white" />
         </button>
@@ -861,45 +627,44 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
         {/* Music */}
         <button
           type="button"
-          className="w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 hover:bg-white/10"
-          style={{ background: "oklch(0.10 0 0 / 0.7)" }}
+          data-ocid="camera.music_button"
+          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+          style={{ background: "oklch(0.10 0 0 / 0.75)" }}
         >
           <Music className="w-5 h-5 text-white" />
         </button>
 
-        {/* Gallery — always active, uses file picker */}
+        {/* Gallery side button */}
         <button
           type="button"
           data-ocid="camera.gallery_button"
           onClick={handleGalleryOpen}
-          className="w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 hover:bg-white/10"
-          style={{ background: "oklch(0.10 0 0 / 0.7)" }}
+          className="w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+          style={{ background: "oklch(0.10 0 0 / 0.75)" }}
         >
           <Image className="w-5 h-5 text-white" />
         </button>
       </div>
 
-      {/* Bottom controls */}
+      {/* ── Bottom controls ── */}
       <div className="absolute bottom-0 left-0 right-0 z-10 pb-8 px-4">
-        {/* Duration tabs — always active */}
+        {/* Duration tabs */}
         <div className="flex justify-center mb-6">
           <div
-            className="flex rounded-full overflow-hidden"
-            style={{ background: "oklch(0.12 0 0 / 0.8)" }}
+            className="flex rounded-full overflow-hidden p-0.5"
+            style={{ background: "oklch(0.12 0 0 / 0.85)" }}
           >
             {([15, 30, 60] as Duration[]).map((d) => (
               <button
                 type="button"
                 key={d}
-                data-ocid={`camera.switch_duration_${d}`}
+                data-ocid={`camera.duration_${d}_tab`}
                 onClick={() => setDuration(d)}
-                className="px-5 py-2 text-sm font-bold transition-all duration-200"
+                className="px-5 py-2 text-sm font-bold transition-all duration-200 rounded-full"
                 style={{
                   color: duration === d ? "white" : "oklch(0.45 0 0)",
                   background:
                     duration === d ? "var(--amo-gradient)" : "transparent",
-                  borderRadius: "9999px",
-                  margin: "2px",
                 }}
               >
                 {d}s
@@ -910,26 +675,26 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
 
         {/* Record row */}
         <div className="flex items-center justify-center gap-8">
-          {/* Switch camera (left of record) */}
+          {/* Flip (bottom) */}
           <button
             type="button"
-            onClick={handleFlipCamera}
-            className="w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90"
-            style={{ background: "oklch(0.15 0 0 / 0.8)" }}
+            data-ocid="camera.flip_bottom_button"
+            onClick={() => cam.flip()}
+            className="w-12 h-12 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+            style={{ background: "oklch(0.15 0 0 / 0.85)" }}
           >
             <FlipHorizontal className="w-6 h-6 text-white" />
           </button>
 
           {/* Record button */}
-          <div className="relative flex flex-col items-center gap-2">
-            {/* Tooltip when camera is unavailable */}
-            {cameraUnavailable && !isRecording && (
+          <div className="relative flex flex-col items-center">
+            {!isActive && !isRecording && (
               <div
                 className="absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap px-3 py-1.5 rounded-full text-[11px] font-semibold text-white"
                 style={{ background: "oklch(0.62 0.26 25 / 0.9)" }}
                 data-ocid="camera.record_button.error_state"
               >
-                Camera permission chahiye
+                {isDenied ? "Camera permission do" : "Camera unavailable"}
               </div>
             )}
 
@@ -938,46 +703,42 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
               style={{
                 borderColor: isRecording
                   ? "oklch(0.62 0.26 25 / 0.8)"
-                  : cameraUnavailable
-                    ? "oklch(0.30 0 0 / 0.5)"
-                    : "oklch(1.00 0 0 / 0.3)",
+                  : isActive
+                    ? "oklch(1.00 0 0 / 0.35)"
+                    : "oklch(0.28 0 0 / 0.5)",
               }}
             >
               <motion.button
                 type="button"
                 data-ocid="camera.record_button"
-                whileTap={camera.isActive ? { scale: 0.9 } : {}}
+                whileTap={isActive ? { scale: 0.88 } : {}}
                 onClick={
                   isRecording
                     ? stopRecording
-                    : camera.isActive
+                    : isActive
                       ? startRecording
                       : undefined
                 }
-                disabled={!camera.isActive && !isRecording}
+                disabled={!isActive && !isRecording}
                 className="w-14 h-14 rounded-full transition-all duration-200"
                 style={{
                   background: isRecording
                     ? "oklch(0.62 0.26 25)"
-                    : cameraUnavailable
-                      ? "oklch(0.25 0 0)"
-                      : "white",
-                  opacity: cameraUnavailable ? 0.45 : 1,
-                  cursor: cameraUnavailable ? "not-allowed" : "pointer",
-                  ...(isRecording
-                    ? { animation: "pulse-ring 1.5s ease-out infinite" }
-                    : {}),
+                    : isActive
+                      ? "white"
+                      : "oklch(0.22 0 0)",
+                  opacity: !isActive && !isRecording ? 0.4 : 1,
+                  cursor: !isActive && !isRecording ? "not-allowed" : "pointer",
                 }}
                 animate={
                   isRecording
-                    ? { borderRadius: "12px", width: "44px", height: "44px" }
+                    ? { borderRadius: "10px", width: "40px", height: "40px" }
                     : {}
                 }
                 transition={{ duration: 0.2 }}
               />
             </div>
 
-            {/* SVG progress arc for recording */}
             {isRecording && (
               <svg
                 aria-hidden="true"
@@ -991,7 +752,7 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
                   cy="44"
                   r="40"
                   fill="none"
-                  stroke="oklch(0.40 0 0)"
+                  stroke="oklch(0.30 0 0)"
                   strokeWidth="3"
                 />
                 <circle
@@ -1010,15 +771,15 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
             )}
           </div>
 
-          {/* Gallery picker (right of record) — always active */}
+          {/* Gallery upload (bottom right) */}
           <button
             type="button"
             data-ocid="camera.upload_button"
             onClick={handleGalleryOpen}
-            className="flex flex-col items-center gap-1 transition-all duration-200 active:scale-90"
+            className="flex flex-col items-center gap-1 active:scale-90 transition-transform"
           >
             <div
-              className="w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center"
+              className="w-12 h-12 rounded-xl flex items-center justify-center"
               style={{
                 background:
                   "linear-gradient(135deg, oklch(0.52 0.22 145), oklch(0.45 0.20 165))",
@@ -1033,17 +794,17 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
           </button>
         </div>
 
-        {/* Mic toggle — always active */}
+        {/* Mic toggle */}
         <div className="flex justify-center mt-4">
           <button
             type="button"
             data-ocid="camera.mic_toggle"
             onClick={() => setMicMuted((m) => !m)}
-            className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 active:scale-95"
+            className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium active:scale-95 transition-transform"
             style={{
               background: micMuted
                 ? "oklch(0.62 0.26 25 / 0.15)"
-                : "oklch(0.12 0 0 / 0.8)",
+                : "oklch(0.12 0 0 / 0.85)",
               border: micMuted
                 ? "1px solid oklch(0.62 0.26 25 / 0.4)"
                 : "1px solid transparent",
@@ -1072,9 +833,14 @@ export default function CameraScreen({ onClose }: CameraScreenProps) {
         className="hidden"
         onChange={handleFileChange}
       />
+
+      {/* Hidden canvas for photo capture */}
+      <canvas ref={cam.canvasRef} className="hidden" />
     </div>
   );
 }
+
+// ── Upload / Preview Screen ──────────────────────────────────────────────────
 
 interface UploadScreenProps {
   previewUrl: string | null;
@@ -1111,7 +877,6 @@ function UploadScreen({
       className="fixed inset-0 z-40 flex flex-col overflow-y-auto"
       style={{ background: "oklch(0.07 0 0)" }}
     >
-      {/* Header */}
       <div
         className="flex items-center justify-between px-4 pt-12 pb-4"
         style={{ borderBottom: "1px solid oklch(0.15 0 0)" }}
@@ -1128,21 +893,18 @@ function UploadScreen({
       </div>
 
       <div className="flex-1 p-4 space-y-5">
-        {/* Preview thumbnail */}
         <div className="flex gap-4 items-start">
           <div
             className="w-20 h-28 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center"
             style={{ background: "var(--amo-gradient)" }}
           >
             {previewUrl ? (
-              // biome-ignore lint/a11y/useMediaCaption: Preview thumbnail for user-uploaded video
+              // biome-ignore lint/a11y/useMediaCaption: user preview thumbnail
               <video src={previewUrl} className="w-full h-full object-cover" />
             ) : (
               <Play className="w-6 h-6 text-white fill-white" />
             )}
           </div>
-
-          {/* Caption */}
           <div className="flex-1">
             <textarea
               data-ocid="upload.caption_input"
@@ -1155,7 +917,6 @@ function UploadScreen({
           </div>
         </div>
 
-        {/* Hashtags */}
         <div
           className="rounded-2xl p-4"
           style={{ background: "oklch(0.11 0 0)" }}
@@ -1177,13 +938,15 @@ function UploadScreen({
           />
         </div>
 
-        {/* Music selector placeholder */}
         <div
           className="rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:bg-white/5 transition-colors"
           style={{ background: "oklch(0.11 0 0)" }}
         >
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full amo-gradient flex items-center justify-center">
+            <div
+              className="w-9 h-9 rounded-full flex items-center justify-center"
+              style={{ background: "var(--amo-gradient)" }}
+            >
               <Music className="w-4 h-4 text-white" />
             </div>
             <div>
@@ -1196,7 +959,6 @@ function UploadScreen({
           <ChevronDown className="w-4 h-4 text-white/40 -rotate-90" />
         </div>
 
-        {/* Visibility options */}
         <div
           className="rounded-2xl overflow-hidden"
           style={{ background: "oklch(0.11 0 0)" }}
@@ -1212,7 +974,7 @@ function UploadScreen({
               )}
               <div className="flex items-center justify-between px-4 py-3">
                 <span className="text-sm text-white">{opt.label}</span>
-                <span className="text-sm amo-gradient-text font-semibold">
+                <span className="text-sm font-semibold amo-gradient-text">
                   {opt.value}
                 </span>
               </div>
@@ -1221,7 +983,6 @@ function UploadScreen({
         </div>
       </div>
 
-      {/* Post button */}
       <div className="px-4 pb-8 pt-4">
         <motion.button
           type="button"
@@ -1233,14 +994,14 @@ function UploadScreen({
           style={{ background: "var(--amo-gradient)" }}
         >
           {posted ? (
-            "✅ Posted!"
+            "Posted!"
           ) : isPosting ? (
             <span className="flex items-center justify-center gap-2">
               <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               Uploading...
             </span>
           ) : (
-            "Post Reel 🚀"
+            "Post Reel"
           )}
         </motion.button>
       </div>
